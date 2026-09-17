@@ -7,14 +7,21 @@ import os
 import sys
 import time
 from typing import Dict, Any, List
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 import pymongo
 from pymongo import MongoClient, UpdateOne
 from datasets import load_dataset
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 # Load configuration from .env file
-load_dotenv()
-
 MONGO_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
 DB_NAME = os.getenv("MONGODB_DB_NAME", "sen2neon_db")
 COLLECTION_NAME = os.getenv("MONGODB_COLLECTION", "records")
@@ -38,12 +45,15 @@ def sanitize_record(row: Dict[str, Any]) -> Dict[str, Any]:
     """Ensure all fields in row are clean BSON-compatible primitives."""
     clean = {}
     for k, v in row.items():
-        if isinstance(v, (str, int, float, bool)) or v is None:
+        if hasattr(v, "tolist"):
+            clean[k] = v.tolist()
+        elif isinstance(v, (str, int, float, bool)) or v is None:
             clean[k] = v
         elif isinstance(v, list):
-            # Ensure elements inside lists are primitive
             clean[k] = [
-                x if isinstance(x, (str, int, float, bool)) or x is None else str(x)
+                x.tolist() if hasattr(x, "tolist") else (
+                    x if isinstance(x, (str, int, float, bool)) or x is None else str(x)
+                )
                 for x in v
             ]
         elif isinstance(v, dict):
