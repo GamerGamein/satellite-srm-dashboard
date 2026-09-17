@@ -34,7 +34,7 @@ export function EarthHeroSection({
   scrimStrength = 0.88,
   activeTargetId,
   onSelectTarget,
-  orbitSpeed = 0.05,
+  orbitSpeed = 0.04,
   glow = 1.0,
   className = "",
   children,
@@ -42,10 +42,12 @@ export function EarthHeroSection({
 }: EarthHeroSectionProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [isInteracting, setIsInteracting] = useState(false);
 
   // Scene state stored in ref for the 60fps animation loop
   const sceneStateRef = useRef<{
     earthGroup: THREE.Group | null;
+    earthMesh: THREE.Mesh | null;
     cloudsMesh: THREE.Mesh | null;
     atmosphereMat: THREE.ShaderMaterial | null;
     targetQuaternion: THREE.Quaternion | null;
@@ -59,10 +61,14 @@ export function EarthHeroSection({
     }[];
     beaconRings: { mesh: THREE.Mesh; scale: number; maxScale: number }[];
     isDragging: boolean;
-    previousMousePosition: { x: number; y: number };
+    previousPointerPosition: { x: number; y: number };
     rotationVelocity: { x: number; y: number };
+    mouseNorm: { x: number; y: number };
+    currentParallax: { x: number; y: number };
+    basePosition: { x: number; y: number };
   }>({
     earthGroup: null,
+    earthMesh: null,
     cloudsMesh: null,
     atmosphereMat: null,
     targetQuaternion: null,
@@ -70,8 +76,11 @@ export function EarthHeroSection({
     satellites: [],
     beaconRings: [],
     isDragging: false,
-    previousMousePosition: { x: 0, y: 0 },
+    previousPointerPosition: { x: 0, y: 0 },
     rotationVelocity: { x: 0, y: 0 },
+    mouseNorm: { x: 0, y: 0 },
+    currentParallax: { x: 0, y: 0 },
+    basePosition: { x: 0, y: 0 },
   });
 
   const latLonToVector3 = useCallback(
@@ -119,12 +128,12 @@ export function EarthHeroSection({
     const canvas = canvasRef.current;
     if (!container || !canvas) return;
 
-    const width = container.clientWidth || window.innerWidth;
-    const height = container.clientHeight || window.innerHeight;
+    let width = container.clientWidth || window.innerWidth;
+    let height = container.clientHeight || window.innerHeight;
 
     // 1. Scene & Camera Setup
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x000206, 0.03);
+    scene.fog = new THREE.FogExp2(0x000206, 0.028);
 
     const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
     camera.position.set(0, 0, 8.4);
@@ -140,22 +149,19 @@ export function EarthHeroSection({
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.35;
 
-    // 2. Realistic Space Lighting
-    // Ambient cosmic glow with deep blue tint
-    const ambientLight = new THREE.AmbientLight(0x182436, 1.1);
+    // 2. Space Lighting
+    const ambientLight = new THREE.AmbientLight(0x18263a, 1.15);
     scene.add(ambientLight);
 
-    // Sun directional light (gives sharp day/night terminator line)
-    const sunLight = new THREE.DirectionalLight(0xfff7e6, 3.2);
+    const sunLight = new THREE.DirectionalLight(0xfff8ea, 3.4);
     sunLight.position.set(16, 8, 11);
     scene.add(sunLight);
 
-    // Blue earth-rim backlight
-    const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.8);
+    const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.85);
     rimLight.position.set(-14, -5, -10);
     scene.add(rimLight);
 
-    // 3. Earth Group with Position Offset based on focus prop
+    // 3. Earth Group
     const earthGroup = new THREE.Group();
     scene.add(earthGroup);
     sceneStateRef.current.earthGroup = earthGroup;
@@ -169,9 +175,9 @@ export function EarthHeroSection({
       const viewHeight = 2 * Math.tan(vFovRad / 2) * camera.position.z;
       const viewWidth = viewHeight * aspect;
 
-      // Map focus [0, 1] to camera world coordinates
       const posX = (f[0] - 0.5) * viewWidth * 0.9;
       const posY = -(f[1] - 0.5) * viewHeight * 0.9;
+      sceneStateRef.current.basePosition = { x: posX, y: posY };
       earthGroup.position.set(posX, posY, 0);
     };
     updateEarthPosition(focus, width, height);
@@ -199,6 +205,7 @@ export function EarthHeroSection({
       earthMaterial
     );
     earthGroup.add(earthMesh);
+    sceneStateRef.current.earthMesh = earthMesh;
 
     // Clouds Mesh
     const cloudsMat = new THREE.MeshStandardMaterial({
@@ -215,7 +222,7 @@ export function EarthHeroSection({
     earthGroup.add(cloudsMesh);
     sceneStateRef.current.cloudsMesh = cloudsMesh;
 
-    // Graticule Lines (Hud/tactical coordinate wireframe)
+    // Graticule Coordinates HUD
     const graticuleMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
       wireframe: true,
@@ -228,7 +235,7 @@ export function EarthHeroSection({
     );
     earthGroup.add(graticuleMesh);
 
-    // Atmospheric Corona Shader (Fresnel Rayleigh Scattering)
+    // Atmospheric Corona (Fresnel Rayleigh Scattering Shader)
     const atmosphereVertexShader = `
       varying vec3 vNormal;
       varying vec3 vPosition;
@@ -309,7 +316,7 @@ export function EarthHeroSection({
       earthGroup.add(mast);
 
       // Flashing Core Beacon
-      const pinGeom = new THREE.SphereGeometry(0.038, 16, 16);
+      const pinGeom = new THREE.SphereGeometry(0.04, 16, 16);
       const pinMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
       const pin = new THREE.Mesh(pinGeom, pinMat);
       pin.position.copy(pos.clone().add(normal.clone().multiplyScalar(0.22)));
@@ -353,27 +360,22 @@ export function EarthHeroSection({
     ) => {
       const satGroup = new THREE.Group();
 
-      // Main Satellite Body
       const bodyGeom = new THREE.BoxGeometry(0.07, 0.07, 0.12);
       const bodyMat = new THREE.MeshStandardMaterial({
         color: 0xe2e8f0,
         metalness: 0.9,
         roughness: 0.2,
       });
-      const body = new THREE.Mesh(bodyGeom, bodyMat);
-      satGroup.add(body);
+      satGroup.add(new THREE.Mesh(bodyGeom, bodyMat));
 
-      // Solar Panels
       const panelGeom = new THREE.BoxGeometry(0.35, 0.005, 0.06);
       const panelMat = new THREE.MeshStandardMaterial({
         color: 0x0284c7,
         metalness: 0.7,
         roughness: 0.3,
       });
-      const panel = new THREE.Mesh(panelGeom, panelMat);
-      satGroup.add(panel);
+      satGroup.add(new THREE.Mesh(panelGeom, panelMat));
 
-      // Sensor aperture
       const lensGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.03, 12);
       const lensMat = new THREE.MeshBasicMaterial({ color: colorHex });
       const lens = new THREE.Mesh(lensGeom, lensMat);
@@ -382,17 +384,7 @@ export function EarthHeroSection({
 
       earthGroup.add(satGroup);
 
-      // Orbit Line Ring
-      const orbitCurve = new THREE.EllipseCurve(
-        0,
-        0,
-        orbitR,
-        orbitR,
-        0,
-        2 * Math.PI,
-        false,
-        0
-      );
+      const orbitCurve = new THREE.EllipseCurve(0, 0, orbitR, orbitR, 0, 2 * Math.PI, false, 0);
       const points = orbitCurve.getPoints(128);
       const orbitGeom = new THREE.BufferGeometry().setFromPoints(
         points.map((p) => new THREE.Vector3(p.x, 0, p.y))
@@ -428,48 +420,86 @@ export function EarthHeroSection({
     earthGroup.rotation.y = 1.35;
     earthGroup.rotation.x = 0.22;
 
-    // 7. Interactive Drag & Spin Controls
-    const handleMouseDown = (e: MouseEvent) => {
-      // Only drag if left button clicked
-      if (e.button !== 0) return;
-      sceneStateRef.current.isDragging = true;
-      sceneStateRef.current.previousMousePosition = { x: e.clientX, y: e.clientY };
-      sceneStateRef.current.isLerpingTarget = false;
+    // 7. Robust Mouse & Touch Pointer Interactivity
+    const handlePointerDown = (e: PointerEvent) => {
+      // Don't intercept clicks on interactive buttons, links or chips
+      const targetEl = e.target as HTMLElement | null;
+      if (targetEl && targetEl.closest("button, a, input, [role='button'], textarea")) {
+        return;
+      }
+      if (e.button !== 0 && e.pointerType === "mouse") return;
+
+      const state = sceneStateRef.current;
+      state.isDragging = true;
+      state.previousPointerPosition = { x: e.clientX, y: e.clientY };
+      state.isLerpingTarget = false;
+      state.rotationVelocity = { x: 0, y: 0 };
+      setIsInteracting(true);
+
+      // Capture pointer so dragging outside container still tracks smoothly
+      try {
+        container.setPointerCapture(e.pointerId);
+      } catch {}
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       const state = sceneStateRef.current;
+      const rect = container.getBoundingClientRect();
+
+      // Normalized cursor coordinates [-1, 1] across container for parallax tilt
+      const normX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const normY = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      state.mouseNorm = {
+        x: Math.max(-1.5, Math.min(1.5, normX)),
+        y: Math.max(-1.5, Math.min(1.5, normY)),
+      };
+
+      // Handle active drag
       if (!state.isDragging || !state.earthGroup) return;
 
-      const deltaX = e.clientX - state.previousMousePosition.x;
-      const deltaY = e.clientY - state.previousMousePosition.y;
+      const deltaX = e.clientX - state.previousPointerPosition.x;
+      const deltaY = e.clientY - state.previousPointerPosition.y;
 
-      const rotSpeed = 0.004;
+      const rotSpeed = 0.005;
       state.earthGroup.rotation.y += deltaX * rotSpeed;
       state.earthGroup.rotation.x += deltaY * rotSpeed;
 
-      // Clamp X rotation to prevent flipping upside down
+      // Clamp vertical pitch to prevent pole disorientation
       state.earthGroup.rotation.x = Math.max(
         -Math.PI / 2.3,
         Math.min(Math.PI / 2.3, state.earthGroup.rotation.x)
       );
 
+      // Track momentum velocity
       state.rotationVelocity = {
-        x: deltaY * rotSpeed * 0.5,
-        y: deltaX * rotSpeed * 0.5,
+        x: deltaY * rotSpeed * 0.4,
+        y: deltaX * rotSpeed * 0.4,
       };
 
-      state.previousMousePosition = { x: e.clientX, y: e.clientY };
+      state.previousPointerPosition = { x: e.clientX, y: e.clientY };
     };
 
-    const handleMouseUp = () => {
-      sceneStateRef.current.isDragging = false;
+    const handlePointerUp = (e: PointerEvent) => {
+      const state = sceneStateRef.current;
+      state.isDragging = false;
+      setIsInteracting(false);
+      try {
+        container.releasePointerCapture(e.pointerId);
+      } catch {}
     };
 
-    const domElement = canvas;
-    domElement.addEventListener("mousedown", handleMouseDown);
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+    // Smooth Mouse Wheel Zoom
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const zoomSpeed = 0.0045;
+      camera.position.z = Math.max(5.0, Math.min(13.0, camera.position.z + e.deltaY * zoomSpeed));
+    };
+
+    container.addEventListener("pointerdown", handlePointerDown);
+    container.addEventListener("pointermove", handlePointerMove);
+    container.addEventListener("pointerup", handlePointerUp);
+    container.addEventListener("pointercancel", handlePointerUp);
+    container.addEventListener("wheel", handleWheel, { passive: false });
 
     // 8. Animation Loop
     let animationFrameId: number;
@@ -483,29 +513,36 @@ export function EarthHeroSection({
 
       if (!state.earthGroup) return;
 
-      // Rotate Clouds slightly faster than Earth for atmospheric depth
+      // Ambient Parallax tilt tracking mouse position
+      state.currentParallax.x += (state.mouseNorm.x * 0.35 - state.currentParallax.x) * 0.06;
+      state.currentParallax.y += (state.mouseNorm.y * 0.25 - state.currentParallax.y) * 0.06;
+
+      state.earthGroup.position.x = state.basePosition.x + state.currentParallax.x;
+      state.earthGroup.position.y = state.basePosition.y + state.currentParallax.y;
+
+      // Rotate Clouds slightly faster than Earth for 3D volumetric depth
       if (state.cloudsMesh) {
         state.cloudsMesh.rotation.y += 0.00045;
       }
 
-      // Smooth target interpolation if a ground target was chosen
+      // Smooth target interpolation if user selected a ground location
       if (state.isLerpingTarget && state.targetQuaternion) {
         state.earthGroup.quaternion.slerp(state.targetQuaternion, 0.045);
         if (state.earthGroup.quaternion.angleTo(state.targetQuaternion) < 0.005) {
           state.isLerpingTarget = false;
         }
       } else if (!state.isDragging) {
-        // Inertia damping after drag
+        // Inertia damping after user releases drag
         state.earthGroup.rotation.y += state.rotationVelocity.y;
         state.earthGroup.rotation.x += state.rotationVelocity.x;
-        state.rotationVelocity.x *= 0.95;
-        state.rotationVelocity.y *= 0.95;
+        state.rotationVelocity.x *= 0.94;
+        state.rotationVelocity.y *= 0.94;
 
-        // Ambient auto-rotation
+        // Ambient continuous rotation
         state.earthGroup.rotation.y += orbitSpeed * delta;
       }
 
-      // Animate ground target radar pulses
+      // Animate ground target radar beacon pulses
       state.beaconRings.forEach((b) => {
         b.scale += delta * 1.8;
         if (b.scale > b.maxScale) {
@@ -534,21 +571,23 @@ export function EarthHeroSection({
     // 9. Resize Handling
     const handleResize = () => {
       if (!container) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      camera.aspect = w / h;
+      width = container.clientWidth;
+      height = container.clientHeight;
+      camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
-      updateEarthPosition(focus, w, h);
+      renderer.setSize(width, height);
+      updateEarthPosition(focus, width, height);
     };
     window.addEventListener("resize", handleResize);
 
     return () => {
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener("resize", handleResize);
-      domElement.removeEventListener("mousedown", handleMouseDown);
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      container.removeEventListener("pointerdown", handlePointerDown);
+      container.removeEventListener("pointermove", handlePointerMove);
+      container.removeEventListener("pointerup", handlePointerUp);
+      container.removeEventListener("pointercancel", handlePointerUp);
+      container.removeEventListener("wheel", handleWheel);
       renderer.dispose();
     };
   }, [focus, orbitSpeed, glow, focusOnCoordinate]);
@@ -572,17 +611,19 @@ export function EarthHeroSection({
   return (
     <div
       ref={containerRef}
-      className={`relative isolate h-full w-full overflow-hidden bg-black ${className}`}
+      className={`relative isolate h-full w-full overflow-hidden bg-black select-none touch-none ${
+        isInteracting ? "cursor-grabbing" : "cursor-grab"
+      } ${className}`}
       {...rest}
     >
       {/* 3D WebGL Canvas */}
       <canvas
         ref={canvasRef}
         aria-hidden="true"
-        className="absolute inset-0 h-full w-full cursor-grab active:cursor-grabbing"
+        className="absolute inset-0 h-full w-full pointer-events-none"
       />
 
-      {/* Atmospheric Scrim Veil to keep text 100% legible */}
+      {/* Atmospheric Scrim Veil to keep overlay text crisp & legible */}
       {scrim !== "none" && (
         <div
           className={`pointer-events-none absolute inset-0 ${getScrimClasses()}`}
@@ -595,10 +636,18 @@ export function EarthHeroSection({
 
       {/* Children Layer (Hero copy, CTA buttons, badges) */}
       {children ? (
-        <div className="relative z-10 h-full w-full pointer-events-auto">
+        <div className="relative z-10 h-full w-full pointer-events-none">
           {children}
         </div>
       ) : null}
+
+      {/* Interactive Mouse Control HUD Pill (Bottom Right) */}
+      <div className="absolute bottom-6 right-6 hidden md:flex items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs text-neutral-400 backdrop-blur-md pointer-events-none select-none">
+        <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+        <span className="font-mono text-[11px] text-neutral-300">
+          DRAG TO ROTATE 3D GLOBE • SCROLL TO ZOOM
+        </span>
+      </div>
     </div>
   );
 }

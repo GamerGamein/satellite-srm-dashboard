@@ -68,9 +68,9 @@ export default function LandingPage() {
           orbitSpeed={0.045}
         >
           <div className="flex h-full min-h-[92svh] items-start px-6 pt-12 sm:px-10 md:min-h-[760px] md:items-center md:pt-0 lg:px-20 pointer-events-none">
-            <div className="max-w-[40rem] pointer-events-auto">
+            <div className="max-w-[40rem] pointer-events-none">
               {/* Mission telemetry status badge */}
-              <div className="inline-flex items-center gap-2 mb-6">
+              <div className="inline-flex items-center gap-2 mb-6 pointer-events-auto">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-400" />
@@ -95,7 +95,7 @@ export default function LandingPage() {
               </p>
 
               {/* Pill-shaped action buttons from Blackhole design */}
-              <div className="mt-8 flex flex-wrap items-center gap-3.5 md:mt-10">
+              <div className="mt-8 flex flex-wrap items-center gap-3.5 md:mt-10 pointer-events-auto">
                 <Link
                   href="/workspace"
                   className="rounded-full bg-white px-7 py-3.5 text-sm font-semibold text-black transition hover:bg-neutral-200 shadow-xl shadow-white/10 flex items-center gap-2"
@@ -114,7 +114,7 @@ export default function LandingPage() {
               </div>
 
               {/* Interactive 3D Earth Location Chips */}
-              <div className="mt-8 pt-6 border-t border-white/10 flex flex-col gap-2.5">
+              <div className="mt-8 pt-6 border-t border-white/10 flex flex-col gap-2.5 pointer-events-auto">
                 <div className="flex items-center gap-2 text-[11px] font-mono text-neutral-400 uppercase tracking-wider">
                   <Globe className="h-3.5 w-3.5 text-cyan-400 animate-pulse" />
                   <span>ROTATE 3D GLOBE TO TARGET:</span>
