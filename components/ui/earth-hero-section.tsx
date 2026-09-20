@@ -21,7 +21,7 @@ export interface EarthHeroSectionProps
   activeTargetId?: string;
   /** Callback when user clicks or selects a ground target. */
   onSelectTarget?: (target: GroundTarget) => void;
-  /** Auto rotation speed (degrees per second). Default 0.04 */
+  /** Auto rotation speed (degrees per second). Default 0 (only rotates when interacting). */
   orbitSpeed?: number;
   /** Bloom/glow intensity for atmospheric corona. */
   glow?: number;
@@ -34,7 +34,7 @@ export function EarthHeroSection({
   scrimStrength = 0.88,
   activeTargetId,
   onSelectTarget,
-  orbitSpeed = 0.04,
+  orbitSpeed = 0,
   glow = 1.0,
   className = "",
   children,
@@ -66,6 +66,7 @@ export function EarthHeroSection({
     mouseNorm: { x: number; y: number };
     currentParallax: { x: number; y: number };
     basePosition: { x: number; y: number };
+    targetCameraZ: number;
   }>({
     earthGroup: null,
     earthMesh: null,
@@ -81,6 +82,7 @@ export function EarthHeroSection({
     mouseNorm: { x: 0, y: 0 },
     currentParallax: { x: 0, y: 0 },
     basePosition: { x: 0, y: 0 },
+    targetCameraZ: 8.4,
   });
 
   const latLonToVector3 = useCallback(
@@ -416,9 +418,9 @@ export function EarthHeroSection({
     satellites.push(createSatellite("Cartosat-3", EARTH_RADIUS * 1.5, 42, 0xa855f7));
     sceneStateRef.current.satellites = satellites;
 
-    // Initial spin facing India / Asia
-    earthGroup.rotation.y = 1.35;
-    earthGroup.rotation.x = 0.22;
+    // Initial orientation facing India / Asia
+    const initialEuler = new THREE.Euler(0.22, 1.35, 0, "YXZ");
+    earthGroup.quaternion.setFromEuler(initialEuler);
 
     // 7. Robust Mouse & Touch Pointer Interactivity
     const handlePointerDown = (e: PointerEvent) => {
@@ -460,20 +462,24 @@ export function EarthHeroSection({
       const deltaX = e.clientX - state.previousPointerPosition.x;
       const deltaY = e.clientY - state.previousPointerPosition.y;
 
-      const rotSpeed = 0.005;
-      state.earthGroup.rotation.y += deltaX * rotSpeed;
-      state.earthGroup.rotation.x += deltaY * rotSpeed;
-
-      // Clamp vertical pitch to prevent pole disorientation
-      state.earthGroup.rotation.x = Math.max(
-        -Math.PI / 2.3,
-        Math.min(Math.PI / 2.3, state.earthGroup.rotation.x)
+      const rotSpeed = 0.0035;
+      const qY = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        deltaX * rotSpeed
+      );
+      const qX = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(1, 0, 0),
+        deltaY * rotSpeed
       );
 
-      // Track momentum velocity
+      // Premultiply in screen space so globe tracks user's drag naturally without gimbal lock
+      state.earthGroup.quaternion.premultiply(qY);
+      state.earthGroup.quaternion.premultiply(qX);
+
+      // Filtered momentum velocity
       state.rotationVelocity = {
-        x: deltaY * rotSpeed * 0.4,
-        y: deltaX * rotSpeed * 0.4,
+        x: THREE.MathUtils.lerp(state.rotationVelocity.x, deltaY * rotSpeed, 0.4),
+        y: THREE.MathUtils.lerp(state.rotationVelocity.y, deltaX * rotSpeed, 0.4),
       };
 
       state.previousPointerPosition = { x: e.clientX, y: e.clientY };
@@ -488,11 +494,12 @@ export function EarthHeroSection({
       } catch {}
     };
 
-    // Smooth Mouse Wheel Zoom
+    // Silky Smooth Mouse Wheel Zoom
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const zoomSpeed = 0.0045;
-      camera.position.z = Math.max(5.0, Math.min(13.0, camera.position.z + e.deltaY * zoomSpeed));
+      const state = sceneStateRef.current;
+      const zoomStep = e.deltaY * 0.0035;
+      state.targetCameraZ = Math.max(5.2, Math.min(12.5, state.targetCameraZ + zoomStep));
     };
 
     container.addEventListener("pointerdown", handlePointerDown);
@@ -503,59 +510,98 @@ export function EarthHeroSection({
 
     // 8. Animation Loop
     let animationFrameId: number;
-    let clock = new THREE.Clock();
+    const clock = new THREE.Clock();
 
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
 
-      const delta = clock.getDelta();
+      const delta = Math.min(clock.getDelta(), 0.1);
       const state = sceneStateRef.current;
 
       if (!state.earthGroup) return;
 
-      // Ambient Parallax tilt tracking mouse position
-      state.currentParallax.x += (state.mouseNorm.x * 0.35 - state.currentParallax.x) * 0.06;
-      state.currentParallax.y += (state.mouseNorm.y * 0.25 - state.currentParallax.y) * 0.06;
+      // Silky Smooth Mouse Wheel Camera Zoom Damping
+      camera.position.z = THREE.MathUtils.damp(
+        camera.position.z,
+        state.targetCameraZ,
+        5.5,
+        delta
+      );
+
+      // Silky Parallax tilt tracking mouse position
+      state.currentParallax.x = THREE.MathUtils.damp(
+        state.currentParallax.x,
+        state.mouseNorm.x * 0.28,
+        4.0,
+        delta
+      );
+      state.currentParallax.y = THREE.MathUtils.damp(
+        state.currentParallax.y,
+        state.mouseNorm.y * 0.18,
+        4.0,
+        delta
+      );
 
       state.earthGroup.position.x = state.basePosition.x + state.currentParallax.x;
       state.earthGroup.position.y = state.basePosition.y + state.currentParallax.y;
 
-      // Rotate Clouds slightly faster than Earth for 3D volumetric depth
-      if (state.cloudsMesh) {
-        state.cloudsMesh.rotation.y += 0.00045;
-      }
-
-      // Smooth target interpolation if user selected a ground location
+      // Handle Smooth Lerp to Selected Ground Target
       if (state.isLerpingTarget && state.targetQuaternion) {
-        state.earthGroup.quaternion.slerp(state.targetQuaternion, 0.045);
-        if (state.earthGroup.quaternion.angleTo(state.targetQuaternion) < 0.005) {
+        const slerpFactor = 1 - Math.exp(-4.2 * delta);
+        state.earthGroup.quaternion.slerp(state.targetQuaternion, slerpFactor);
+        if (state.earthGroup.quaternion.angleTo(state.targetQuaternion) < 0.002) {
+          state.earthGroup.quaternion.copy(state.targetQuaternion);
           state.isLerpingTarget = false;
         }
       } else if (!state.isDragging) {
-        // Inertia damping after user releases drag
-        state.earthGroup.rotation.y += state.rotationVelocity.y;
-        state.earthGroup.rotation.x += state.rotationVelocity.x;
-        state.rotationVelocity.x *= 0.94;
-        state.rotationVelocity.y *= 0.94;
+        // Inertia damping after user releases drag (glides to a smooth stop)
+        const velMag = Math.hypot(state.rotationVelocity.x, state.rotationVelocity.y);
+        if (velMag > 0.00001) {
+          const qY = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(0, 1, 0),
+            state.rotationVelocity.y
+          );
+          const qX = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(1, 0, 0),
+            state.rotationVelocity.x
+          );
+          state.earthGroup.quaternion.premultiply(qY);
+          state.earthGroup.quaternion.premultiply(qX);
 
-        // Ambient continuous rotation
-        state.earthGroup.rotation.y += orbitSpeed * delta;
+          // Exponential friction decay
+          const friction = Math.exp(-3.5 * delta);
+          state.rotationVelocity.x *= friction;
+          state.rotationVelocity.y *= friction;
+        } else {
+          // Stationary when idle - only rotates on interaction!
+          state.rotationVelocity.x = 0;
+          state.rotationVelocity.y = 0;
+        }
+
+        // Only rotate if orbitSpeed is explicitly requested (> 0)
+        if (orbitSpeed > 0) {
+          const autoQ = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(0, 1, 0),
+            orbitSpeed * delta
+          );
+          state.earthGroup.quaternion.premultiply(autoQ);
+        }
       }
 
       // Animate ground target radar beacon pulses
       state.beaconRings.forEach((b) => {
-        b.scale += delta * 1.8;
+        b.scale += delta * 1.6;
         if (b.scale > b.maxScale) {
           b.scale = 1;
         }
         b.mesh.scale.set(b.scale, b.scale, b.scale);
         const mat = b.mesh.material as THREE.MeshBasicMaterial;
-        mat.opacity = Math.max(0, 0.9 * (1 - b.scale / b.maxScale));
+        mat.opacity = Math.max(0, 0.85 * (1 - b.scale / b.maxScale));
       });
 
-      // Animate Satellites in Keplerian orbits
+      // Animate Satellites along their realistic orbits
       state.satellites.forEach((sat) => {
-        sat.angle += sat.speed;
+        sat.angle += sat.speed * delta * 60;
         const x = sat.orbitRadius * Math.cos(sat.angle);
         const z = sat.orbitRadius * Math.sin(sat.angle);
         const orbitPos = new THREE.Vector3(x, 0, z);

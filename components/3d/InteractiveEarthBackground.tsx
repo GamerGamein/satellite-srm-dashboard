@@ -130,7 +130,7 @@ export default function InteractiveEarthBackground({
   const [selectedTarget, setSelectedTarget] = useState<GroundTarget | null>(
     GROUND_TARGETS[0]
   );
-  const [isAutoRotating, setIsAutoRotating] = useState(true);
+  const [isAutoRotating, setIsAutoRotating] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [cameraTelemetry, setCameraTelemetry] = useState({
     subLat: '17.4° N',
@@ -165,7 +165,7 @@ export default function InteractiveEarthBackground({
     isLerpingTarget: false,
     satellites: [],
     beaconRings: [],
-    autoRotate: true,
+    autoRotate: false,
     isDragging: false,
     previousMousePosition: { x: 0, y: 0 },
     rotationVelocity: { x: 0, y: 0 },
@@ -591,22 +591,22 @@ export default function InteractiveEarthBackground({
       const deltaX = e.clientX - previousMousePosition.x;
       const deltaY = e.clientY - previousMousePosition.y;
 
-      const rotSpeed = 0.005;
-      const deltaQuatX = new THREE.Quaternion().setFromAxisAngle(
+      const rotSpeed = 0.0035;
+      const qY = new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(0, 1, 0),
         deltaX * rotSpeed
       );
-      const deltaQuatY = new THREE.Quaternion().setFromAxisAngle(
+      const qX = new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(1, 0, 0),
         deltaY * rotSpeed
       );
 
-      earthGroup.quaternion.multiplyQuaternions(deltaQuatX, earthGroup.quaternion);
-      earthGroup.quaternion.multiplyQuaternions(deltaQuatY, earthGroup.quaternion);
+      earthGroup.quaternion.premultiply(qY);
+      earthGroup.quaternion.premultiply(qX);
 
       sceneContextRef.current.rotationVelocity = {
-        x: deltaX * rotSpeed,
-        y: deltaY * rotSpeed,
+        x: THREE.MathUtils.lerp(sceneContextRef.current.rotationVelocity.x, deltaY * rotSpeed, 0.4),
+        y: THREE.MathUtils.lerp(sceneContextRef.current.rotationVelocity.y, deltaX * rotSpeed, 0.4),
       };
 
       previousMousePosition = { x: e.clientX, y: e.clientY };
@@ -663,32 +663,41 @@ export default function InteractiveEarthBackground({
 
       // Handle Smooth Lerp to Target Location
       if (ctx.isLerpingTarget && ctx.targetQuaternion && earthGroup) {
-        earthGroup.quaternion.slerp(ctx.targetQuaternion, 0.05);
-        if (earthGroup.quaternion.angleTo(ctx.targetQuaternion) < 0.005) {
+        const slerpFactor = 1 - Math.exp(-4.2 * delta);
+        earthGroup.quaternion.slerp(ctx.targetQuaternion, slerpFactor);
+        if (earthGroup.quaternion.angleTo(ctx.targetQuaternion) < 0.002) {
+          earthGroup.quaternion.copy(ctx.targetQuaternion);
           ctx.isLerpingTarget = false;
         }
       } else if (!ctx.isDragging && earthGroup) {
-        // Apply Inertia
-        if (
-          Math.abs(ctx.rotationVelocity.x) > 0.0001 ||
-          Math.abs(ctx.rotationVelocity.y) > 0.0001
-        ) {
-          const deltaQuatX = new THREE.Quaternion().setFromAxisAngle(
+        // Apply Inertia with exponential friction
+        const velMag = Math.hypot(ctx.rotationVelocity.x, ctx.rotationVelocity.y);
+        if (velMag > 0.00001) {
+          const qY = new THREE.Quaternion().setFromAxisAngle(
             new THREE.Vector3(0, 1, 0),
-            ctx.rotationVelocity.x
-          );
-          const deltaQuatY = new THREE.Quaternion().setFromAxisAngle(
-            new THREE.Vector3(1, 0, 0),
             ctx.rotationVelocity.y
           );
-          earthGroup.quaternion.multiplyQuaternions(deltaQuatX, earthGroup.quaternion);
-          earthGroup.quaternion.multiplyQuaternions(deltaQuatY, earthGroup.quaternion);
+          const qX = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(1, 0, 0),
+            ctx.rotationVelocity.x
+          );
+          earthGroup.quaternion.premultiply(qY);
+          earthGroup.quaternion.premultiply(qX);
 
-          ctx.rotationVelocity.x *= 0.94;
-          ctx.rotationVelocity.y *= 0.94;
-        } else if (ctx.autoRotate) {
-          // Gentle majestic auto-rotation when idle
-          earthGroup.rotation.y += 0.001;
+          const friction = Math.exp(-3.5 * delta);
+          ctx.rotationVelocity.x *= friction;
+          ctx.rotationVelocity.y *= friction;
+        } else {
+          ctx.rotationVelocity.x = 0;
+          ctx.rotationVelocity.y = 0;
+        }
+
+        if (ctx.autoRotate) {
+          const autoQ = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(0, 1, 0),
+            0.001
+          );
+          earthGroup.quaternion.premultiply(autoQ);
         }
       }
 
@@ -771,7 +780,7 @@ export default function InteractiveEarthBackground({
       />
 
       {/* Subtle vignette overlay so text over 3D model remains crisp */}
-      <div className="pointer-events-none absolute inset-0 bg-radial-gradient from-transparent via-black/20 to-black/80" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(0,0,0,0.3)_60%,rgba(0,0,0,0.85)_100%)]" />
 
       {/* TOP TELEMETRY HUD BAR */}
       <div className="absolute top-4 left-4 right-4 flex flex-wrap items-center justify-between gap-3 pointer-events-none z-10">

@@ -60,77 +60,13 @@
   }
 }
 
-/* Minimalist monochromatic geospatial space grid */
-.geo-grid-pattern {
-  background-size: 36px 36px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-}
-
-/* Cosmic space reticle pattern */
+/* Cosmic space reticle pattern (used in workspace comparison viewer) */
 .space-reticle-pattern {
   background-size: 64px 64px;
   background-image: 
     radial-gradient(circle at center, rgba(56, 189, 248, 0.08) 1px, transparent 1px),
     linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-}
-
-/* Monochromatic radar sweep */
-.radar-sweep {
-  background: conic-gradient(
-    from 0deg at 50% 50%,
-    transparent 0deg,
-    transparent 280deg,
-    rgba(56, 189, 248, 0.04) 320deg,
-    rgba(255, 255, 255, 0.16) 360deg
-  );
-  animation: radarRotate 8s linear infinite;
-}
-
-@keyframes radarRotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Glowing monochromatic borders and highlights */
-.glow-white {
-  box-shadow: 0 0 25px -3px rgba(255, 255, 255, 0.25);
-}
-
-.border-glow-white {
-  border-color: rgba(255, 255, 255, 0.6);
-  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.1);
-}
-
-.glow-cyan {
-  box-shadow: 0 0 25px -3px rgba(56, 189, 248, 0.25);
-}
-
-/* Glassmorphism Space Cards & Panels */
-.glass-panel-space {
-  background: rgba(3, 7, 18, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.glass-panel {
-  background: rgba(8, 12, 22, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.glass-panel-subtle {
-  background: rgba(8, 12, 22, 0.5);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 /* Monochromatic telemetry scrollbar */
@@ -150,10 +86,4 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #38bdf8;
-}
-
-/* Slider handle helper */
-.comparison-slider-handle {
-  touch-action: none;
-  user-select: none;
 }
