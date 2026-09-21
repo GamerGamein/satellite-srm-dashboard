@@ -144,15 +144,6 @@ export default function ComparisonViewer({
     setSliderPosition(50);
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    if (e.deltaY < 0) {
-      setZoom((prev) => Math.min(prev + 0.15, 3.5));
-    } else {
-      setZoom((prev) => Math.max(prev - 0.15, 0.7));
-    }
-  };
-
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
@@ -296,7 +287,6 @@ export default function ComparisonViewer({
         {/* Main Interactive Canvas Area */}
         <div
           ref={containerRef}
-          onWheel={handleWheel}
           onMouseMove={handleCanvasMouseMove}
           onMouseDown={(e) => {
             if (e.button === 1 || e.shiftKey) {

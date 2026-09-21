@@ -25,6 +25,8 @@ export interface EarthHeroSectionProps
   orbitSpeed?: number;
   /** Bloom/glow intensity for atmospheric corona. */
   glow?: number;
+  /** Enable mouse wheel scroll to zoom the 3D Earth. Default is false to allow natural page scrolling. */
+  enableZoom?: boolean;
   children?: React.ReactNode;
 }
 
@@ -36,6 +38,7 @@ export function EarthHeroSection({
   onSelectTarget,
   orbitSpeed = 0,
   glow = 1.0,
+  enableZoom = false,
   className = "",
   children,
   ...rest
@@ -494,19 +497,22 @@ export function EarthHeroSection({
       } catch {}
     };
 
-    // Silky Smooth Mouse Wheel Zoom
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const state = sceneStateRef.current;
-      const zoomStep = e.deltaY * 0.0035;
-      state.targetCameraZ = Math.max(5.2, Math.min(12.5, state.targetCameraZ + zoomStep));
-    };
+    // Optional Mouse Wheel Zoom (disabled by default so page scrolls naturally)
+    let handleWheel: ((e: WheelEvent) => void) | null = null;
+    if (enableZoom) {
+      handleWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        const state = sceneStateRef.current;
+        const zoomStep = e.deltaY * 0.0035;
+        state.targetCameraZ = Math.max(5.2, Math.min(12.5, state.targetCameraZ + zoomStep));
+      };
+      container.addEventListener("wheel", handleWheel, { passive: false });
+    }
 
     container.addEventListener("pointerdown", handlePointerDown);
     container.addEventListener("pointermove", handlePointerMove);
     container.addEventListener("pointerup", handlePointerUp);
     container.addEventListener("pointercancel", handlePointerUp);
-    container.addEventListener("wheel", handleWheel, { passive: false });
 
     // 8. Animation Loop
     let animationFrameId: number;
@@ -633,10 +639,12 @@ export function EarthHeroSection({
       container.removeEventListener("pointermove", handlePointerMove);
       container.removeEventListener("pointerup", handlePointerUp);
       container.removeEventListener("pointercancel", handlePointerUp);
-      container.removeEventListener("wheel", handleWheel);
+      if (handleWheel) {
+        container.removeEventListener("wheel", handleWheel);
+      }
       renderer.dispose();
     };
-  }, [focus, orbitSpeed, glow, focusOnCoordinate]);
+  }, [focus, orbitSpeed, glow, focusOnCoordinate, enableZoom]);
 
   // Scrim gradient overlay classes
   const getScrimClasses = () => {
@@ -691,7 +699,7 @@ export function EarthHeroSection({
       <div className="absolute bottom-6 right-6 hidden md:flex items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs text-neutral-400 backdrop-blur-md pointer-events-none select-none">
         <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
         <span className="font-mono text-[11px] text-neutral-300">
-          DRAG TO ROTATE 3D GLOBE • SCROLL TO ZOOM
+          {enableZoom ? "DRAG TO ROTATE 3D GLOBE • SCROLL TO ZOOM" : "DRAG TO ROTATE 3D GLOBE"}
         </span>
       </div>
     </div>

@@ -65,6 +65,7 @@ export default function LandingPage() {
           scrimStrength={narrow ? 0.95 : 0.88}
           activeTargetId={activeTargetId}
           onSelectTarget={(target) => setActiveTargetId(target.id)}
+          enableZoom={false}
         >
           <div className="flex h-full min-h-[92svh] items-start px-6 pt-12 sm:px-10 md:min-h-[760px] md:items-center md:pt-0 lg:px-20 pointer-events-none">
             <div className="max-w-[40rem] pointer-events-none">
